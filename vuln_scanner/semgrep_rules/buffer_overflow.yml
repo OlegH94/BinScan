@@ -1,0 +1,207 @@
+# buffer_overflow.yml
+# ---------------------------------------------------------------------
+# Regole semgrep, eseguite IN PARALLELO alle regole YARA
+# (yara_rules/buffer_overflow.yar) e alla taint analysis fatta a mano
+# (taint_analysis.py), non al loro posto. L'idea e' avere due motori
+# indipendenti che guardano lo stesso pseudocodice con tecniche
+# diverse (YARA: regex su testo; semgrep: matching su AST reale via
+# tree-sitter) cosi' da poter confrontare in tesi dove i due
+# concordano e dove no.
+#
+# Due categorie di regole qui dentro:
+#   1. "candidate" (mode implicito "search"): stesso identico ruolo
+#      delle regole YARA, ma con parsing C vero -> non si fanno
+#      ingannare da formattazione su piu' righe, spazi variabili,
+#      commenti in mezzo alla chiamata, ecc. che una regex puo' perdere.
+#   2. "taint" (mode: taint): usano il motore di taint tracking
+#      NATIVO di semgrep (source -> sink dichiarati qui sotto), come
+#      secondo tracciamento indipendente da taint_analysis.py.
+# ---------------------------------------------------------------------
+
+rules:
+  # ============================================================
+  # REGOLE "CANDIDATE" (equivalenti YARA, parsing AST)
+  # ============================================================
+
+  - id: bof-strcpy-unbounded
+    languages: [c]
+    severity: ERROR
+    message: "Uso di strcpy senza controllo di dimensione (CWE-120)"
+    metadata:
+      cwe: "CWE-120"
+      category: buffer_overflow
+    pattern: strcpy($DST, $SRC)
+
+  - id: bof-strcat-unbounded
+    languages: [c]
+    severity: ERROR
+    message: "Uso di strcat senza controllo di dimensione residua (CWE-120)"
+    metadata:
+      cwe: "CWE-120"
+      category: buffer_overflow
+    pattern: strcat($DST, $SRC)
+
+  - id: bof-gets-call
+    languages: [c]
+    severity: ERROR
+    message: "Uso di gets(), intrinsecamente non delimitabile (CWE-242)"
+    metadata:
+      cwe: "CWE-242"
+      category: buffer_overflow
+    pattern: gets($BUF)
+
+  - id: bof-sprintf-no-bound
+    languages: [c]
+    severity: ERROR
+    message: "Uso di sprintf invece di snprintf (CWE-120)"
+    metadata:
+      cwe: "CWE-120"
+      category: buffer_overflow
+    pattern: sprintf($DST, $FMT, ...)
+
+  - id: bof-memcpy-dynamic-size
+    languages: [c]
+    severity: WARNING
+    message: "memcpy con size proveniente da variabile/espressione (CWE-787)"
+    metadata:
+      cwe: "CWE-787"
+      category: buffer_overflow
+    patterns:
+      - pattern: memcpy($DST, $SRC, $SIZE)
+      - metavariable-regex:
+          metavariable: $SIZE
+          # esclude i casi in cui il terzo argomento e' una costante
+          # numerica pura (es. memcpy(dst, src, 16)) -> quelli sono
+          # gia' delimitati e meno interessanti
+          regex: "^(?!\\d+$).*"
+
+  - id: bof-scanf-unbounded-string
+    languages: [c]
+    severity: ERROR
+    message: "scanf/sscanf con %s senza specificatore di larghezza campo (CWE-120)"
+    metadata:
+      cwe: "CWE-120"
+      category: buffer_overflow
+    patterns:
+      - pattern-either:
+          - pattern: scanf($FMT, ...)
+          - pattern: sscanf($SRC, $FMT, ...)
+          - pattern: __isoc99_scanf($FMT, ...)
+      - metavariable-regex:
+          metavariable: $FMT
+          regex: '.*%s.*'
+      - metavariable-regex:
+          metavariable: $FMT
+          # nessun %<numero>s presente nella stringa di formato
+          regex: '^(?!.*%[0-9]+s).*$'
+
+  - id: bof-alloca-dynamic-size
+    languages: [c]
+    severity: WARNING
+    message: "alloca() con size non costante (CWE-131)"
+    metadata:
+      cwe: "CWE-131"
+      category: buffer_overflow
+    patterns:
+      - pattern: alloca($SIZE)
+      - metavariable-regex:
+          metavariable: $SIZE
+          regex: "^(?!\\d+$).*"
+
+  - id: bof-format-string-to-printf
+    languages: [c]
+    severity: WARNING
+    message: "Format string potenzialmente controllata da input passata a *printf (CWE-134)"
+    metadata:
+      cwe: "CWE-134"
+      category: buffer_overflow
+    patterns:
+      - pattern-either:
+          - pattern: printf($FMT)
+          - pattern: fprintf($FP, $FMT)
+      - metavariable-pattern:
+          metavariable: $FMT
+          patterns:
+            - pattern-not: "\"...\""   # esclude il caso safe: stringa letterale
+
+  # ============================================================
+  # REGOLE TAINT-MODE (motore semgrep nativo, indipendente da
+  # taint_analysis.py — stesso obiettivo, tecnica diversa)
+  # ============================================================
+
+  - id: bof-tainted-strcpy
+    mode: taint
+    languages: [c]
+    severity: ERROR
+    message: "Input non fidato raggiunge strcpy senza sanitizzazione (CWE-120, taint semgrep)"
+    metadata:
+      cwe: "CWE-120"
+      category: buffer_overflow
+      engine_note: "taint tracking nativo semgrep, indipendente dalla taint_analysis.py custom"
+    pattern-sources:
+      - by-side-effect: true
+        patterns:
+          - pattern-either:
+              - pattern: read($FD, $BUF, ...)
+              - pattern: recv($FD, $BUF, ...)
+              - pattern: recvfrom($FD, $BUF, ...)
+              - pattern: fgets($BUF, ...)
+              - pattern: fread($BUF, ...)
+          - focus-metavariable: $BUF
+      - pattern: gets($BUF)
+      - pattern: scanf(...)
+      - pattern: sscanf(...)
+      - pattern: __isoc99_scanf(...)
+      - pattern: getenv(...)
+    pattern-sinks:
+      - pattern: strcpy($DST, $SRC)
+      - pattern: strcat($DST, $SRC)
+    pattern-sanitizers:
+      - pattern: strncpy(...)
+      - pattern: strncat(...)
+      - pattern: snprintf(...)
+
+  - id: bof-tainted-memcpy
+    mode: taint
+    languages: [c]
+    severity: ERROR
+    message: "Input non fidato raggiunge memcpy/memmove con size dinamica (CWE-787, taint semgrep)"
+    metadata:
+      cwe: "CWE-787"
+      category: buffer_overflow
+      engine_note: "taint tracking nativo semgrep, indipendente dalla taint_analysis.py custom"
+    pattern-sources:
+      - by-side-effect: true
+        patterns:
+          - pattern-either:
+              - pattern: read($FD, $BUF, ...)
+              - pattern: recv($FD, $BUF, ...)
+              - pattern: recvfrom($FD, $BUF, ...)
+              - pattern: fgets($BUF, ...)
+              - pattern: fread($BUF, ...)
+          - focus-metavariable: $BUF
+    pattern-sinks:
+      - pattern: memcpy($DST, $SRC, $SIZE)
+      - pattern: memmove($DST, $SRC, $SIZE)
+
+  - id: bof-tainted-format-string
+    mode: taint
+    languages: [c]
+    severity: WARNING
+    message: "Input non fidato usato come stringa di formato (CWE-134, taint semgrep)"
+    metadata:
+      cwe: "CWE-134"
+      category: buffer_overflow
+      engine_note: "taint tracking nativo semgrep, indipendente dalla taint_analysis.py custom"
+    pattern-sources:
+      - by-side-effect: true
+        patterns:
+          - pattern-either:
+              - pattern: read($FD, $BUF, ...)
+              - pattern: recv($FD, $BUF, ...)
+              - pattern: fgets($BUF, ...)
+          - focus-metavariable: $BUF
+      - pattern: getenv(...)
+    pattern-sinks:
+      - pattern: printf($FMT)
+      - pattern: fprintf($FP, $FMT)

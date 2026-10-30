@@ -1,0 +1,10 @@
+angr==9.2.102
+networkx==3.2.1
+pydot==4.0.1
+matplotlib==3.9.4
+yara-python==4.5.4
+semgrep==1.136.0
+Jinja2==3.1.6
+requests==2.32.5
+# optional: only for the Claude API experiments
+anthropic==0.125.0

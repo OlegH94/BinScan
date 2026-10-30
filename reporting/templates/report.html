@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<title>Report — {{ binary_name }}</title>
+<style>
+  body { font-family: -apple-system, Segoe UI, Arial, sans-serif; margin: 2rem; color: #1a1a1a; background: #fafafa; }
+  h1 { border-bottom: 3px solid #333; padding-bottom: .5rem; }
+  h2 { margin-top: 2.5rem; border-bottom: 1px solid #ccc; padding-bottom: .3rem; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; background: white; }
+  th, td { border: 1px solid #ddd; padding: .5rem .7rem; text-align: left; font-size: .92rem; }
+  th { background: #333; color: white; }
+  tr:nth-child(even) { background: #f4f4f4; }
+  code, pre { font-family: Consolas, Monaco, monospace; background: #272822; color: #f8f8f2; padding: .15rem .4rem; border-radius: 3px; }
+  pre { padding: .8rem; overflow-x: auto; }
+  .severity-Critical { color: white; background: #b71c1c; padding: .1rem .5rem; border-radius: 3px; font-weight: bold; }
+  .severity-High, .severity-ERROR { color: white; background: #d84315; padding: .1rem .5rem; border-radius: 3px; }
+  .severity-Medium, .severity-WARNING { color: #1a1a1a; background: #ffca28; padding: .1rem .5rem; border-radius: 3px; }
+  .severity-Low { color: #1a1a1a; background: #cfd8dc; padding: .1rem .5rem; border-radius: 3px; }
+  .engine-badge { display: inline-block; padding: .1rem .5rem; border-radius: 12px; font-size: .8rem; color: white; margin-right: .2rem; }
+  .engine-yara { background: #6a1b9a; }
+  .engine-semgrep { background: #00838f; }
+  .engine-cwe_checker { background: #2e7d32; }
+  .remediation { background: #e8f5e9; border-left: 4px solid #2e7d32; padding: .6rem 1rem; margin-top: .3rem; font-size: .9rem; }
+  .metric-box { display: inline-block; background: white; border: 1px solid #ddd; border-radius: 6px; padding: 1rem 1.5rem; margin-right: 1rem; text-align: center; }
+  .metric-box .value { font-size: 1.8rem; font-weight: bold; display: block; }
+  .metric-box .label { font-size: .8rem; color: #666; }
+  .no-data { color: #888; font-style: italic; }
+  .fine-print { font-size: .82rem; color: #666; margin-top: .5rem; }
+  .chart-box { display: inline-block; background: white; border: 1px solid #ddd; border-radius: 6px; padding: 1rem 1.2rem; vertical-align: top; }
+  .chart-box h4 { margin: 0 0 .6rem 0; font-size: .85rem; color: #555; }
+  .code-panel { margin-top: .6rem; }
+  .code-panel h5 { margin: 0 0 .3rem 0; font-size: .82rem; color: #555; text-transform: uppercase; letter-spacing: .03em; }
+  .code-panel pre { margin: 0; line-height: 1.45; }
+  .code-line { display: block; padding: 0 .3rem; }
+  .code-line.hl { background: #5c3d00; box-shadow: inset 3px 0 0 #ffca28; }
+  .riepilogo-flex { display: flex; flex-wrap: wrap; gap: 1rem; align-items: flex-start; }
+</style>
+</head>
+<body>
+
+<h1>Vulnerability Pattern Scanner — Report</h1>
+<p><strong>Binario:</strong> <code>{{ binary_name }}</code> &nbsp;|&nbsp; <strong>Generato:</strong> {{ generated_at }}</p>
+{% if decompiled_page_url or source_page_url %}
+<p class="fine-print">
+  📄 Codice completo per approfondire (utile anche a 0 finding, per capire com'e' fatto il codice):
+  {% if decompiled_page_url %}<a href="{{ decompiled_page_url }}">decompilato completo</a>{% endif %}
+  {% if decompiled_page_url and source_page_url %}&nbsp;·&nbsp;{% endif %}
+  {% if source_page_url %}<a href="{{ source_page_url }}">sorgente completo</a>{% endif %}
+</p>
+{% endif %}
+
+<h2>Riepilogo</h2>
+<div class="riepilogo-flex">
+  <div>
+    <div class="metric-box"><span class="value">{{ findings|length }}</span><span class="label">finding totali</span></div>
+    <div class="metric-box"><span class="value">{{ engine_counts.yara|default(0) }}</span><span class="label">YARA + taint</span></div>
+    <div class="metric-box"><span class="value">{{ engine_counts.semgrep|default(0) }}</span><span class="label">semgrep</span></div>
+    <div class="metric-box"><span class="value">{{ engine_counts.cwe_checker|default(0) }}</span><span class="label">cwe_checker</span></div>
+  </div>
+  {% if engine_chart_svg %}
+  <div class="chart-box">
+    <h4>Finding per motore</h4>
+    {{ engine_chart_svg | safe }}
+  </div>
+  {% endif %}
+</div>
+
+<h2>Performance (4.3 — Performance dello spec di tesi)</h2>
+{% if timing %}
+<table>
+  <tr><th>Fase</th><th>Durata</th><th>Note</th></tr>
+  <tr>
+    <td>Decompilazione (Ghidra)</td>
+    <td>{{ "%.2f"|format(timing.decompile_seconds) }} s</td>
+    <td>{% if timing.binary_size_bytes %}{{ "%.3f"|format(timing.decompile_seconds / (timing.binary_size_bytes / 1048576)) }} s/MB (binario: {{ (timing.binary_size_bytes / 1024)|round(1) }} KB){% endif %}</td>
+  </tr>
+  <tr>
+    <td>Costruzione CFG (angr)</td>
+    <td>{{ "%.2f"|format(timing.cfg_seconds) }} s</td>
+    <td></td>
+  </tr>
+</table>
+{% else %}
+<p class="no-data">Nessun dato di timing disponibile per questo binario.</p>
+{% endif %}
+
+<h2>Accuracy (4.1 — Accuracy Testing dello spec di tesi)</h2>
+{% if accuracy and accuracy.has_ground_truth %}
+<div>
+  <div class="metric-box"><span class="value">{{ accuracy.true_positives|length }}/{{ accuracy.expected|length }}</span><span class="label">true positive rate</span></div>
+  <div class="metric-box"><span class="value">{{ accuracy.false_negatives|length }}</span><span class="label">falsi negativi</span></div>
+  <div class="metric-box"><span class="value">{{ accuracy.false_positives|length }}</span><span class="label">falsi positivi</span></div>
+</div>
+
+<h3>Debolezze attese (ground truth)</h3>
+<table>
+  <tr><th>CWE atteso</th><th>Funzione</th><th>Rilevato da</th></tr>
+  {% for tp in accuracy.true_positives %}
+  <tr>
+    <td>{% if tp.cwe|cwe_url %}<a href="{{ tp.cwe|cwe_url }}" target="_blank" rel="noopener noreferrer">{{ tp.cwe }}</a>{% else %}{{ tp.cwe }}{% endif %}</td>
+    <td><code>{{ tp.function }}</code></td>
+    <td>{% for e in tp.engines %}<span class="engine-badge engine-{{ e }}">{{ e }}</span>{% endfor %}</td>
+  </tr>
+  {% endfor %}
+  {% for fn in accuracy.false_negatives %}
+  <tr style="background:#ffebee;">
+    <td>{% if fn.cwe|cwe_url %}<a href="{{ fn.cwe|cwe_url }}" target="_blank" rel="noopener noreferrer">{{ fn.cwe }}</a>{% else %}{{ fn.cwe }}{% endif %}</td>
+    <td><code>{{ fn.function }}</code></td>
+    <td><em>non rilevato da nessun motore</em></td>
+  </tr>
+  {% endfor %}
+</table>
+
+{% if accuracy.per_engine_hits %}
+<h3>Confronto tra motori (quanti expected ha trovato ciascuno)</h3>
+<table>
+  <tr><th>Motore</th><th>Debolezze attese trovate</th></tr>
+  {% for engine, count in accuracy.per_engine_hits.items() %}
+  <tr><td><span class="engine-badge engine-{{ engine }}">{{ engine }}</span></td><td>{{ count }} / {{ accuracy.expected|length }}</td></tr>
+  {% endfor %}
+</table>
+{% endif %}
+
+<p class="fine-print">
+  Il confronto CWE segue le famiglie della tassonomia MITRE (es. CWE-121/125/787 sono
+  tutte considerate corrispondenti a un buffer overflow atteso), non una corrispondenza
+  di stringa esatta — vedi <code>reporting/cwe_utils.py</code>. I falsi positivi sono
+  calcolati contro le funzioni annotate in <code>ground_truth.json</code>: un finding su
+  una funzione non elencata li' viene contato come falso positivo, il che presuppone che
+  la ground truth sia completa per questo binario.
+</p>
+{% else %}
+<p class="no-data">
+  Nessuna ground truth annotata per questo binario in <code>ground_truth.json</code>:
+  accuracy non calcolabile. Vedi <code>reporting/README.md</code> per il formato atteso.
+</p>
+{% endif %}
+
+<h2>Finding dettagliati</h2>
+{% if findings %}
+{% for f in findings %}
+<div style="background:white; border:1px solid #ddd; border-radius:6px; padding:1rem; margin-bottom:1rem;">
+  <p>
+    <span class="engine-badge engine-{{ f.engine|default('yara') }}">{{ f.engine|default('yara') }}</span>
+    <strong>{{ f.rule|default(f.cwe) }}</strong>
+    &nbsp;<span class="severity-{{ f.severity|default('Medium', true) }}">{{ f.severity|default('n/d', true) }}</span>
+    &nbsp;{% if f.cwe|cwe_url %}<a href="{{ f.cwe|cwe_url }}" target="_blank" rel="noopener noreferrer">{{ f.cwe }}</a>{% else %}{{ f.cwe }}{% endif %}
+  </p>
+  <p><strong>Funzione:</strong> <code>{{ f.function|default('n/d', true) }}</code></p>
+  {% if f.decompiled_lines or f.source_lines %}
+    {% if f.decompiled_lines %}
+    <div class="code-panel">
+      <h5>Decompilato (Ghidra)
+        {% if decompiled_page_url and f.decompiled_anchor %}
+        <a href="{{ decompiled_page_url }}#L{{ f.decompiled_anchor }}" style="text-transform:none; font-weight:normal;">↗ apri nel file completo</a>
+        {% endif %}
+      </h5>
+      <pre>{% for l in f.decompiled_lines %}<span class="code-line{{ ' hl' if l.highlight else '' }}">{{ l.text }}</span>
+{% endfor %}</pre>
+    </div>
+    {% endif %}
+    {% if f.source_lines %}
+    <div class="code-panel">
+      <h5>Sorgente originale
+        {% if source_page_url and f.source_anchor %}
+        <a href="{{ source_page_url }}#L{{ f.source_anchor }}" style="text-transform:none; font-weight:normal;">↗ apri nel file completo</a>
+        {% endif %}
+      </h5>
+      <pre>{% for l in f.source_lines %}<span class="code-line{{ ' hl' if l.highlight else '' }}">{{ l.text }}</span>
+{% endfor %}</pre>
+    </div>
+    {% endif %}
+  {% elif f.matched_line %}
+    <pre>{{ f.matched_line }}</pre>
+  {% endif %}
+  {% if f.description %}<p>{{ f.description }}</p>{% endif %}
+  {% if f.tainted %}<p>🔗 <strong>Taint confermato</strong>{% if f.taint_sources %}: <code>{{ f.taint_sources[0] }}</code>{% endif %}</p>{% endif %}
+  <div class="remediation">💡 <strong>Remediation:</strong> {{ f.remediation }}</div>
+</div>
+{% endfor %}
+{% else %}
+<p class="no-data">Nessun finding per questo binario.</p>
+{% endif %}
+
+<h2>Fuzzing</h2>
+{% if fuzzing %}
+<table>
+  <tr><th>Funzione</th><th>Seed generati</th><th>Priorità CFG</th></tr>
+  {% for func, count in fuzzing.per_function.items() %}
+  <tr><td><code>{{ func }}</code></td><td>{{ count }}</td><td>{{ "✅" if func in fuzzing.cfg_priority_functions else "" }}</td></tr>
+  {% endfor %}
+</table>
+
+{% if fuzzing.seed_entries %}
+<h3>Seed generati ({{ fuzzing.seed_entries|length }})</h3>
+<table>
+  <tr><th>File</th><th>Funzione</th><th>Tipo</th><th>Chiamata sorgente</th><th>Dim.</th><th>Priorità CFG</th><th>Anteprima</th></tr>
+  {% for s in fuzzing.seed_entries %}
+  <tr>
+    <td><code>{{ s.file_name }}</code></td>
+    <td><code>{{ s.function|default('n/d', true) }}</code></td>
+    <td>{{ s.kind|default('n/d', true) }}</td>
+    <td>{% for c in s.source_calls %}<code>{{ c }}</code>{% if not loop.last %}, {% endif %}{% endfor %}</td>
+    <td>{{ s.size }} byte</td>
+    <td>{{ "✅" if s.cfg_priority else "" }}</td>
+    <td>
+      {% if s.preview %}<code style="white-space:pre-wrap; word-break:break-all;">{{ s.preview }}</code>{% if s.is_binary %}<br><span class="no-data">(esadecimale)</span>{% endif %}
+      {% else %}<span class="no-data">contenuto non disponibile</span>{% endif %}
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+{% endif %}
+
+{% if fuzzing.effectiveness %}
+<h3>Efficacia della campagna (con vs senza seed guidati)</h3>
+<table>
+  <tr><th>Metrica</th><th>Con seed generator</th><th>Seed casuali</th></tr>
+  {% for row in fuzzing.effectiveness %}
+  <tr><td>{{ row.metric }}</td><td>{{ row.with_seeds }}</td><td>{{ row.without_seeds }}</td></tr>
+  {% endfor %}
+</table>
+{% endif %}
+{% else %}
+<p class="no-data">
+  Nessun dato di fuzzing disponibile per questo binario (fase di esecuzione AFL++ non
+  ancora integrata in pipe.py — vedi fuzz_seed_generator/README.md).
+</p>
+{% endif %}
+
+</body>
+</html>

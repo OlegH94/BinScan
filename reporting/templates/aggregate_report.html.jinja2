@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<title>Report aggregato — vuln_scanner</title>
+<style>
+  body { font-family: -apple-system, Segoe UI, Arial, sans-serif; margin: 2rem; color: #1a1a1a; background: #fafafa; }
+  h1 { border-bottom: 3px solid #333; padding-bottom: .5rem; }
+  h2 { margin-top: 2rem; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; background: white; font-size: .88rem; }
+  th, td { border: 1px solid #ddd; padding: .4rem .6rem; text-align: left; }
+  th { background: #333; color: white; cursor: pointer; user-select: none; position: sticky; top: 0; }
+  th:hover { background: #555; }
+  th.sorted-asc::after { content: " ▲"; }
+  th.sorted-desc::after { content: " ▼"; }
+  tr:nth-child(even) { background: #f4f4f4; }
+  tr.all-zero { background: #ffebee !important; }
+  tr.all-zero:hover { background: #ffcdd2 !important; }
+  .metric-box { display: inline-block; background: white; border: 1px solid #ddd; border-radius: 6px; padding: 1rem 1.5rem; margin-right: 1rem; margin-bottom: 1rem; text-align: center; }
+  .metric-box .value { font-size: 1.8rem; font-weight: bold; display: block; }
+  .metric-box .label { font-size: .8rem; color: #666; }
+  .warn-box { background: #fff3e0; border-left: 4px solid #e65100; padding: .8rem 1.2rem; margin: 1rem 0; }
+  input#filter { padding: .5rem; width: 300px; font-size: .9rem; margin-bottom: .5rem; }
+  a { color: #1565c0; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .zero { color: #b71c1c; font-weight: bold; }
+  .fine-print { font-size: .8rem; color: #666; }
+  .chart-box { display: inline-block; background: white; border: 1px solid #ddd; border-radius: 6px; padding: 1rem 1.2rem; vertical-align: top; margin-bottom: 1rem; }
+  .chart-box h4 { margin: 0 0 .6rem 0; font-size: .85rem; color: #555; }
+  .charts-flex { display: flex; flex-wrap: wrap; gap: 1rem; margin-bottom: .5rem; }
+</style>
+</head>
+<body>
+
+<h1>Report aggregato — {{ summary.total_binaries }} binari</h1>
+<p class="fine-print">Generato: {{ summary.generated_at }}</p>
+
+<h2>Riepilogo</h2>
+<div>
+  <div class="metric-box"><span class="value">{{ summary.total_binaries }}</span><span class="label">binari processati</span></div>
+  <div class="metric-box"><span class="value">{{ summary.engine_totals.yara }}</span><span class="label">finding YARA totali</span></div>
+  <div class="metric-box"><span class="value">{{ summary.engine_totals.semgrep }}</span><span class="label">finding semgrep totali</span></div>
+  <div class="metric-box"><span class="value">{{ summary.engine_totals.cwe_checker }}</span><span class="label">finding cwe_checker totali</span></div>
+  <div class="metric-box"><span class="value zero">{{ summary.zero_finding_binaries }}</span><span class="label">binari a zero finding totali</span></div>
+  {% if summary.overall_true_positive_rate is not none %}
+  <div class="metric-box"><span class="value">{{ "%.0f"|format(summary.overall_true_positive_rate * 100) }}%</span><span class="label">true positive rate complessivo ({{ summary.binaries_with_ground_truth }} binari con ground truth)</span></div>
+  <div class="metric-box"><span class="value">{{ summary.total_false_positives }}</span><span class="label">falsi positivi totali</span></div>
+  {% endif %}
+</div>
+
+<div class="charts-flex">
+  {% if engine_chart_svg %}
+  <div class="chart-box">
+    <h4>Finding totali per motore</h4>
+    {{ engine_chart_svg | safe }}
+  </div>
+  {% endif %}
+  {% if accuracy_chart_svg %}
+  <div class="chart-box">
+    <h4>Accuracy complessiva (TP / FN / FP)</h4>
+    {{ accuracy_chart_svg | safe }}
+  </div>
+  {% endif %}
+</div>
+
+{% if summary.zero_finding_categories %}
+<div class="warn-box">
+  <strong>⚠ Categorie interamente a zero finding</strong> (tutti i binari di questa categoria, non un caso isolato —
+  probabile pattern/regex mancante per questo tipo di sink, non un problema del singolo binario):
+  <ul>
+    {% for cat in summary.zero_finding_categories %}
+    <li><code>{{ cat }}</code></li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+<h2>Dettaglio per binario</h2>
+<input type="text" id="filter" placeholder="Filtra per nome o categoria...">
+<table id="results">
+  <thead>
+    <tr>
+      <th data-type="text">Binario</th>
+      <th data-type="text">Categoria</th>
+      <th data-type="num">YARA</th>
+      <th data-type="num">semgrep</th>
+      <th data-type="num">cwe_checker</th>
+      <th data-type="num">Totale</th>
+      <th data-type="num">TP/attesi</th>
+      <th data-type="num">FN</th>
+      <th data-type="num">FP</th>
+      <th data-type="num">Decompile (s)</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for r in rows %}
+    <tr class="{{ 'all-zero' if r.all_zero else '' }}">
+      <td><a href="{{ r.report_path }}">{{ r.binary }}</a></td>
+      <td>{{ r.category }}</td>
+      <td>{{ r.yara }}</td>
+      <td>{{ r.semgrep }}</td>
+      <td>{{ r.cwe_checker }}</td>
+      <td>{{ r.total_findings }}</td>
+      <td>{% if r.has_ground_truth %}{{ r.true_positives }}/{{ r.expected_count }}{% else %}—{% endif %}</td>
+      <td>{% if r.has_ground_truth %}{{ r.false_negatives }}{% else %}—{% endif %}</td>
+      <td>{% if r.has_ground_truth %}{{ r.false_positives }}{% else %}—{% endif %}</td>
+      <td>{{ "%.1f"|format(r.decompile_seconds) if r.decompile_seconds is not none else "—" }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<p class="fine-print">
+  Righe evidenziate in rosso: zero finding da tutti e tre i motori su quel binario.
+  Clicca un'intestazione di colonna per ordinare. "—" indica assenza di ground truth annotata per quel binario.
+</p>
+
+<script>
+// Ordinamento tabella client-side, nessuna dipendenza esterna.
+document.querySelectorAll('#results th').forEach((th, colIndex) => {
+  let ascending = true;
+  th.addEventListener('click', () => {
+    const table = th.closest('table');
+    const tbody = table.querySelector('tbody');
+    const rows = Array.from(tbody.querySelectorAll('tr'));
+    const type = th.dataset.type;
+
+    rows.sort((a, b) => {
+      let va = a.children[colIndex].textContent.trim();
+      let vb = b.children[colIndex].textContent.trim();
+      if (type === 'num') {
+        va = va === '—' ? -Infinity : parseFloat(va.split('/')[0]) || 0;
+        vb = vb === '—' ? -Infinity : parseFloat(vb.split('/')[0]) || 0;
+        return ascending ? va - vb : vb - va;
+      }
+      return ascending ? va.localeCompare(vb) : vb.localeCompare(va);
+    });
+
+    table.querySelectorAll('th').forEach(h => h.classList.remove('sorted-asc', 'sorted-desc'));
+    th.classList.add(ascending ? 'sorted-asc' : 'sorted-desc');
+    ascending = !ascending;
+
+    rows.forEach(r => tbody.appendChild(r));
+  });
+});
+
+// Filtro testuale su nome/categoria (colonne 0 e 1).
+document.getElementById('filter').addEventListener('input', (e) => {
+  const q = e.target.value.toLowerCase();
+  document.querySelectorAll('#results tbody tr').forEach(row => {
+    const text = (row.children[0].textContent + ' ' + row.children[1].textContent).toLowerCase();
+    row.style.display = text.includes(q) ? '' : 'none';
+  });
+});
+</script>
+
+</body>
+</html>

@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<title>Revisione LLM — {{ binary_name }}</title>
+<style>
+  body { font-family: -apple-system, Segoe UI, Arial, sans-serif; margin: 2rem; color: #1a1a1a; background: #fafafa; }
+  h1 { border-bottom: 3px solid #333; padding-bottom: .5rem; }
+  .warn-box { background: #e3f2fd; border-left: 4px solid #1565c0; padding: .8rem 1.2rem; margin: 1rem 0; font-size: .9rem; }
+  .entry { background: white; border: 1px solid #ddd; border-radius: 6px; padding: 1rem; margin-bottom: 1rem; }
+  .entry.vulnerable { border-left: 4px solid #b71c1c; }
+  .entry.not-vulnerable { border-left: 4px solid #2e7d32; }
+  .entry.uncertain { border-left: 4px solid #f57f17; }
+  .badge { display: inline-block; padding: .1rem .5rem; border-radius: 12px; font-size: .8rem; color: white; margin-right: .3rem; }
+  .badge-flagged { background: #6a1b9a; }
+  .badge-target { background: #00838f; }
+  .confidence-high { color: #b71c1c; font-weight: bold; }
+  .confidence-medium { color: #e65100; }
+  .confidence-low { color: #616161; }
+  code { font-family: Consolas, Monaco, monospace; background: #eee; padding: .1rem .3rem; border-radius: 3px; }
+  .fine-print { font-size: .8rem; color: #666; }
+</style>
+</head>
+<body>
+
+<h1>Revisione LLM — {{ binary_name }}</h1>
+<p class="fine-print">Modello: <code>{{ model }}</code> (locale, via Ollama) — {{ entries|length }} funzioni revisionate</p>
+
+<div class="warn-box">
+  ⚠ <strong>Un giudizio LLM e' probabilistico, non una prova deterministica</strong> come pattern matching
+  (YARA), parsing AST (semgrep), o interpretazione astratta (cwe_checker). Va trattato come una quarta
+  fonte di evidenza distinta, non alla pari delle altre tre nell'accuracy testing.
+</div>
+
+{% for e in entries %}
+<div class="entry {{ 'vulnerable' if e.vulnerable else ('not-vulnerable' if e.vulnerable == false else 'uncertain') }}">
+  <p>
+    {% if e.reviewed_because == 'flagged_by_other_engine' %}
+    <span class="badge badge-flagged">segnalata da altri motori</span>
+    {% elif e.reviewed_because == 'reachable_from_main' %}
+    <span class="badge badge-target">raggiungibile da main()</span>
+    {% else %}
+    <span class="badge badge-target">funzione main()</span>
+    {% endif %}
+    <strong>{{ e.function }}</strong>
+  </p>
+  <p>
+    <strong>Verdetto:</strong>
+    {% if e.vulnerable == true %}🔴 Vulnerabile{% elif e.vulnerable == false %}🟢 Non vulnerabile{% else %}🟡 Incerto{% endif %}
+    &nbsp; <strong>CWE:</strong> {{ e.cwe or 'n/d' }}
+    &nbsp; <strong>Confidenza:</strong> <span class="confidence-{{ e.confidence }}">{{ e.confidence }}</span>
+  </p>
+  {% if e.other_engine_findings %}
+  <p><strong>Segnalato anche da:</strong>
+    {% for f in e.other_engine_findings %}<code>{{ f.engine }}: {{ f.rule or f.cwe }}</code>{% if not loop.last %}, {% endif %}{% endfor %}
+  </p>
+  {% endif %}
+  <p>{{ e.explanation }}</p>
+  {% if e.parse_error %}<p class="fine-print">⚠ Risposta del modello non completamente interpretabile come JSON.</p>{% endif %}
+</div>
+{% endfor %}
+
+{% if not entries %}
+<p class="fine-print">Nessuna funzione da revisionare per questo binario (nessun finding dagli altri motori, nessuna funzione raggiungibile da main() individuata, main() stesso non trovato).</p>
+{% endif %}
+
+</body>
+</html>

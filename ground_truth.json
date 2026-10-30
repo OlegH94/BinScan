@@ -1,0 +1,10 @@
+{
+  "readelf": {
+    "expected": [
+      {
+        "cwe": "CWE-787",
+        "function": "print_dynamic_symbol"
+      }
+    ]
+  }
+}

@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<title>{{ title }} — {{ binary_name }}</title>
+<style>
+  body { font-family: -apple-system, Segoe UI, Arial, sans-serif; margin: 0; color: #1a1a1a; background: #fafafa; }
+  header { padding: 1.2rem 2rem; background: white; border-bottom: 1px solid #ddd; }
+  header h1 { margin: 0 0 .2rem 0; font-size: 1.3rem; }
+  header p { margin: 0; color: #666; font-size: .9rem; }
+  header a { color: #1565c0; text-decoration: none; }
+  header a:hover { text-decoration: underline; }
+  .code-container { padding: 1rem 2rem 3rem 2rem; }
+  .code-container pre {
+    margin: 0; background: #272822; color: #f8f8f2; padding: 1rem 0;
+    border-radius: 6px; overflow-x: auto; font-family: Consolas, Monaco, monospace;
+    font-size: .88rem; line-height: 1.5;
+  }
+  .code-line { display: block; padding: 0 1rem; white-space: pre; }
+  .line-num {
+    display: inline-block; width: 3.5rem; text-align: right; margin-right: 1rem;
+    color: #75715e; user-select: none;
+  }
+  .code-line.hl { background: #5c3d00; box-shadow: inset 3px 0 0 #ffca28; }
+  .code-line:target { background: #1a3d5c; box-shadow: inset 3px 0 0 #4fc3f7; }
+  .legend { font-size: .82rem; color: #666; margin-top: .5rem; }
+  .legend .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: .3rem; vertical-align: middle; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>{{ title }}</h1>
+  <p><strong>Binario:</strong> <code>{{ binary_name }}</code> &nbsp;|&nbsp; <a href="report.html">&larr; torna al report</a></p>
+  <p class="legend">
+    <span class="swatch" style="background:#5c3d00; box-shadow: inset 2px 0 0 #ffca28;"></span> riga che ha fatto scattare un finding
+    &nbsp;&nbsp;
+    <span class="swatch" style="background:#1a3d5c; box-shadow: inset 2px 0 0 #4fc3f7;"></span> riga aperta da un link diretto
+  </p>
+</header>
+
+<div class="code-container">
+  <pre>{% for l in lines %}<span id="L{{ l.n }}" class="code-line{{ ' hl' if l.highlight else '' }}"><span class="line-num">{{ l.n }}</span>{{ l.text }}</span>
+{% endfor %}</pre>
+</div>
+
+</body>
+</html>
